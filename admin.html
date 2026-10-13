@@ -7,8 +7,10 @@
 <p class="msg" id="lmsg" role="alert"></p><button>Se connecter</button></form></section>
 <section id="app" class="hide"><div class="top"><h1>Commandes</h1><button class="ghost" id="out">Se déconnecter</button></div>
 <p class="msg" id="msg" role="status"></p>
+<a id="wa" class="hide" target="_blank" rel="noopener" style="display:inline-block;padding:13px 20px;border-radius:10px;background:var(--ink);color:var(--paper);text-decoration:none;margin-bottom:12px">Envoyer le suivi par WhatsApp</a>
 <form id="nf" class="card"><h2 style="margin:0 0 12px">Nouvelle commande</h2><div class="two">
 <label>Client<select id="cu" required></select></label><label id="nn" class="hide">Nom du nouveau client<input id="nm"></label>
+<label id="np" class="hide">WhatsApp du client, avec indicatif<input id="ph" type="tel" placeholder="221771234567"></label>
 <label class="full">Description<input id="ds" required placeholder="Ex. Chaussures, 120 cartons"></label>
 <label>Transport<select id="tr"><option value="sea">Voie maritime</option><option value="air">Avion</option></select></label>
 <label>Statut<select id="stt">${''}</select></label>
@@ -21,12 +23,14 @@
 const opts=s=>ST.map((l,i)=>`<option value="${KEYS[i]}"${KEYS[i]===s?' selected':''}>${l}</option>`).join('');
 const say=(t,ok)=>{$('msg').textContent=t;$('msg').className='msg'+(ok?' ok':'')};
 let C=[];
+const waUrl=(c,ref)=>{const p=(c.phone||'').replace(/\D/g,'');if(!p)return'';const site=location.origin+location.pathname.replace(/[^\/]*$/,'');
+ return'https://wa.me/'+p+'?text='+encodeURIComponent(`Bonjour ${c.name}, votre commande ${ref} est enregistrée. Suivez-la ici : ${site}\nVotre numéro client : ${c.code}`)};
 async function load(){
- const[c,o]=await Promise.all([sb.from('customers').select('id,code,name').order('name'),sb.from('orders').select('*,customers(name,code)').order('created_at',{ascending:false})]);
+ const[c,o]=await Promise.all([sb.from('customers').select('id,code,name,phone').order('name'),sb.from('orders').select('*,customers(name,code,phone)').order('created_at',{ascending:false})]);
  if(c.error||o.error){say('Chargement impossible. Vérifiez la connexion.');return}
  C=c.data;$('cu').innerHTML='<option value="">Choisir…</option>'+C.map(x=>`<option value="${x.id}">${esc(x.name)} (${esc(x.code)})</option>`).join('')+'<option value="new">+ Nouveau client</option>';
  $('list').innerHTML=o.data.length?o.data.map(x=>`<article class="card"><div class="top"><span class="ref">${esc(x.ref)}</span><span class="desc">${esc(x.customers.name)} · ${esc(x.customers.code)}</span></div>
- <p class="desc">${esc(x.description)}</p><div class="two"><label>Statut<select data-id="${x.id}" data-f="status">${opts(x.status)}</select></label>
+ <p class="desc">${esc(x.description)}</p>${waUrl(x.customers,x.ref)?`<p class="desc"><a href="${waUrl(x.customers,x.ref)}" target="_blank" rel="noopener">Envoyer le suivi par WhatsApp</a></p>`:''}<div class="two"><label>Statut<select data-id="${x.id}" data-f="status">${opts(x.status)}</select></label>
  <label>Arrivée estimée<input type="date" data-id="${x.id}" data-f="eta" value="${x.eta||''}"></label></div></article>`).join(''):'<p class="lead">Aucune commande pour le moment.</p>';
 }
 function start(){$('login').classList.add('hide');$('app').classList.remove('hide');$('stt').innerHTML=opts('commande');load()}
@@ -35,19 +39,22 @@ $('lf').onsubmit=async e=>{e.preventDefault();$('lmsg').textContent='';
  const{error}=await sb.auth.signInWithPassword({email:$('em').value,password:$('pw').value});
  error?$('lmsg').textContent='Email ou mot de passe incorrect.':start()};
 $('out').onclick=async()=>{await sb.auth.signOut();location.reload()};
-$('cu').onchange=()=>$('nn').classList.toggle('hide',$('cu').value!=='new');
+$('cu').onchange=()=>['nn','np'].forEach(i=>$(i).classList.toggle('hide',$('cu').value!=='new'));
 document.addEventListener('change',async e=>{const d=e.target.dataset;if(!d.f)return;
  const{error}=await sb.from('orders').update({[d.f]:e.target.value||null}).eq('id',d.id);
  error?say('Modification non enregistrée. Réessayez.'):say('Modification enregistrée.',1)});
-$('nf').onsubmit=async e=>{e.preventDefault();let cid=$('cu').value,note='';
+$('nf').onsubmit=async e=>{e.preventDefault();$('wa').classList.add('hide');let cid=$('cu').value,note='',cust;
  if(!cid){say('Choisissez un client.');return}
  if(cid==='new'){const name=$('nm').value.trim();if(!name){say('Entrez le nom du nouveau client.');return}
   const A='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',r=crypto.getRandomValues(new Uint8Array(4)),code='CL-'+[...r].map(n=>A[n%A.length]).join('');
-  const{data,error}=await sb.from('customers').insert({code,name}).select().single();
+  const{data,error}=await sb.from('customers').insert({code,name,phone:$('ph').value.replace(/\D/g,'')||null}).select().single();
   if(error){say('Création du client impossible. Réessayez.');return}
-  cid=data.id;note=` Numéro à donner à ${name} : ${code}`}
- const{error}=await sb.from('orders').insert({ref:'CMD-'+Date.now().toString(36).slice(-5).toUpperCase(),customer_id:cid,description:$('ds').value.trim(),
-  transport:$('tr').value,status:$('stt').value,cbm:$('cb').value||null,price:$('pr').value||null,eta:$('et').value||null});
+  cust=data;cid=data.id;note=` Numéro client de ${name} : ${code}`}
+ else cust=C.find(x=>x.id===cid);
+ const ref='CMD-'+Date.now().toString(36).slice(-5).toUpperCase();
+ const{error}=await sb.from('orders').insert({ref,customer_id:cid,description:$('ds').value.trim(),transport:$('tr').value,status:$('stt').value,cbm:$('cb').value||null,price:$('pr').value||null,eta:$('et').value||null});
  if(error){say('Commande non enregistrée. Réessayez.');return}
- $('nf').reset();$('nn').classList.add('hide');say('Commande enregistrée.'+note,1);load()};
+ $('nf').reset();['nn','np'].forEach(i=>$(i).classList.add('hide'));say('Commande enregistrée.'+note,1);
+ const u=waUrl(cust,ref);if(u){$('wa').href=u;$('wa').classList.remove('hide')}
+ load()};
 </script></body></html>
