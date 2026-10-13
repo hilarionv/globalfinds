@@ -1,0 +1,53 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>Espace admin</title>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600&family=Newsreader:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css"></head><body><main class="wrap admin">
+<section id="login"><h1>Espace admin</h1><p class="lead">Connectez-vous pour gérer les commandes.</p>
+<form id="lf" class="card"><div class="two"><label class="full">Email<input id="em" type="email" required></label><label class="full">Mot de passe<input id="pw" type="password" required></label></div>
+<p class="msg" id="lmsg" role="alert"></p><button>Se connecter</button></form></section>
+<section id="app" class="hide"><div class="top"><h1>Commandes</h1><button class="ghost" id="out">Se déconnecter</button></div>
+<p class="msg" id="msg" role="status"></p>
+<form id="nf" class="card"><h2 style="margin:0 0 12px">Nouvelle commande</h2><div class="two">
+<label>Client<select id="cu" required></select></label><label id="nn" class="hide">Nom du nouveau client<input id="nm"></label>
+<label class="full">Description<input id="ds" required placeholder="Ex. Chaussures, 120 cartons"></label>
+<label>Transport<select id="tr"><option value="sea">Voie maritime</option><option value="air">Avion</option></select></label>
+<label>Statut<select id="stt">${''}</select></label>
+<label>Volume (CBM)<input id="cb" type="number" step="0.01" min="0"></label><label>Prix (FCFA)<input id="pr" type="number" min="0"></label>
+<label class="full">Arrivée estimée<input id="et" type="date"></label></div><p></p><button>Enregistrer la commande</button></form>
+<h2>Commandes en cours</h2><div id="list"></div></section></main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script><script src="common.js"></script>
+<script>
+const opts=s=>ST.map((l,i)=>`<option value="${KEYS[i]}"${KEYS[i]===s?' selected':''}>${l}</option>`).join('');
+const say=(t,ok)=>{$('msg').textContent=t;$('msg').className='msg'+(ok?' ok':'')};
+let C=[];
+async function load(){
+ const[c,o]=await Promise.all([sb.from('customers').select('id,code,name').order('name'),sb.from('orders').select('*,customers(name,code)').order('created_at',{ascending:false})]);
+ if(c.error||o.error){say('Chargement impossible. Vérifiez la connexion.');return}
+ C=c.data;$('cu').innerHTML='<option value="">Choisir…</option>'+C.map(x=>`<option value="${x.id}">${esc(x.name)} (${esc(x.code)})</option>`).join('')+'<option value="new">+ Nouveau client</option>';
+ $('list').innerHTML=o.data.length?o.data.map(x=>`<article class="card"><div class="top"><span class="ref">${esc(x.ref)}</span><span class="desc">${esc(x.customers.name)} · ${esc(x.customers.code)}</span></div>
+ <p class="desc">${esc(x.description)}</p><div class="two"><label>Statut<select data-id="${x.id}" data-f="status">${opts(x.status)}</select></label>
+ <label>Arrivée estimée<input type="date" data-id="${x.id}" data-f="eta" value="${x.eta||''}"></label></div></article>`).join(''):'<p class="lead">Aucune commande pour le moment.</p>';
+}
+function start(){$('login').classList.add('hide');$('app').classList.remove('hide');$('stt').innerHTML=opts('commande');load()}
+sb.auth.getSession().then(({data})=>data.session&&start());
+$('lf').onsubmit=async e=>{e.preventDefault();$('lmsg').textContent='';
+ const{error}=await sb.auth.signInWithPassword({email:$('em').value,password:$('pw').value});
+ error?$('lmsg').textContent='Email ou mot de passe incorrect.':start()};
+$('out').onclick=async()=>{await sb.auth.signOut();location.reload()};
+$('cu').onchange=()=>$('nn').classList.toggle('hide',$('cu').value!=='new');
+document.addEventListener('change',async e=>{const d=e.target.dataset;if(!d.f)return;
+ const{error}=await sb.from('orders').update({[d.f]:e.target.value||null}).eq('id',d.id);
+ error?say('Modification non enregistrée. Réessayez.'):say('Modification enregistrée.',1)});
+$('nf').onsubmit=async e=>{e.preventDefault();let cid=$('cu').value,note='';
+ if(!cid){say('Choisissez un client.');return}
+ if(cid==='new'){const name=$('nm').value.trim();if(!name){say('Entrez le nom du nouveau client.');return}
+  const A='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',r=crypto.getRandomValues(new Uint8Array(4)),code='CL-'+[...r].map(n=>A[n%A.length]).join('');
+  const{data,error}=await sb.from('customers').insert({code,name}).select().single();
+  if(error){say('Création du client impossible. Réessayez.');return}
+  cid=data.id;note=` Numéro à donner à ${name} : ${code}`}
+ const{error}=await sb.from('orders').insert({ref:'CMD-'+Date.now().toString(36).slice(-5).toUpperCase(),customer_id:cid,description:$('ds').value.trim(),
+  transport:$('tr').value,status:$('stt').value,cbm:$('cb').value||null,price:$('pr').value||null,eta:$('et').value||null});
+ if(error){say('Commande non enregistrée. Réessayez.');return}
+ $('nf').reset();$('nn').classList.add('hide');say('Commande enregistrée.'+note,1);load()};
+</script></body></html>

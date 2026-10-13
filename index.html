@@ -1,0 +1,21 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Suivi de vos commandes</title>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600&family=Newsreader:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css"></head><body><main class="wrap">
+<h1>Suivez vos commandes</h1>
+<p class="lead">Entrez votre numéro client pour voir où en sont vos commandes.</p>
+<form class="find" id="f"><input id="code" placeholder="Votre numéro client" autocomplete="off" aria-label="Numéro client"><button>Voir mes commandes</button></form>
+<p class="msg" id="msg" role="alert"></p><div id="out"></div></main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script><script src="common.js"></script>
+<script>
+const card=o=>`<article class="card"><span class="ref">${esc(o.ref)}</span><p class="desc">${esc(o.description)}</p>${route(KEYS.indexOf(o.status))}
+<dl class="facts"><div><dt>Transport</dt><dd>${o.transport==='air'?'Avion':'Voie maritime'}</dd></div><div><dt>Arrivée estimée</dt><dd>${fmtD(o.eta)}</dd></div>
+<div><dt>Volume</dt><dd>${o.cbm??'-'} CBM</dd></div><div><dt>Prix</dt><dd>${fmtP(o.price)}</dd></div></dl></article>`;
+$('f').onsubmit=async e=>{e.preventDefault();const code=$('code').value.trim();$('msg').textContent='';$('out').innerHTML='';
+if(!code){$('msg').textContent='Entrez votre numéro client.';return}
+const{data,error}=await sb.rpc('get_orders',{p_code:code});
+if(error){$('msg').textContent='Service indisponible. Réessayez dans un instant.';return}
+if(!data.length){$('msg').textContent='Aucune commande trouvée pour ce numéro. Vérifiez-le ou contactez votre fournisseur.';return}
+$('out').innerHTML=`<p class="lead">${data.length} commande${data.length>1?'s':''} pour ${esc(code.toUpperCase())}</p>`+data.map(card).join('')};
+</script></body></html>
