@@ -16,22 +16,39 @@
     <label>Statut<select id="stt">${''}</select></label>
     <label>Volume (CBM)<input id="cb" type="number" step="0.01" min="0"></label><label>Poids (kg)<input id="wt" type="number" step="0.01" min="0"></label><label>Prix (FCFA)<input id="pr" type="number" min="0"></label>
     <label class="full">Arrivée estimée<input id="et" type="date"></label></div><p></p><button>Enregistrer la commande</button></form>
-    <h2>Commandes en cours</h2><div id="list"></div></section></main>
+    <h2>Commandes</h2>
+    <div class="two" style="margin:12px 0"><input id="q" type="search" placeholder="Rechercher : client, numéro, produit…" aria-label="Rechercher"><select id="fs" aria-label="Filtrer par statut"><option value="">Tous les statuts</option><option value="commande">Commandé</option><option value="recu">Reçu</option><option value="envoye">Envoyé</option></select></div>
+    <div id="list"></div></section></main>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="config.js"></script><script src="common.js"></script>
     <script>
     const opts=s=>ST.map((l,i)=>`<option value="${KEYS[i]}"${KEYS[i]===s?' selected':''}>${l}</option>`).join('');
     const say=(t,ok)=>{$('msg').textContent=t;$('msg').className='msg'+(ok?' ok':'')};
-    let C=[];
+    let C=[],O=[],editing=null;
     const waUrl=(c,ref)=>{const p=(c.phone||'').replace(/\D/g,'');if(!p)return'';const site=location.origin+location.pathname.replace(/[^\/]*$/,'');
      return'https://wa.me/'+p+'?text='+encodeURIComponent(`Bonjour ${c.name}, votre commande ${ref} est enregistrée. Suivez-la ici : ${site}\nVotre numéro client : ${c.code}`)};
+    const sel=(id,v)=>`<select id="${id}"><option value="sea"${v==='sea'?' selected':''}>Voie maritime</option><option value="air"${v==='air'?' selected':''}>Avion</option></select>`;
+    const card=x=>x.id===editing?`<article class="card"><span class="ref">${esc(x.ref)}</span><div class="two" style="margin-top:12px">
+    <label class="full">Description<input id="e_ds" value="${esc(x.description)}"></label>
+    <label>Transport${sel('e_tr',x.transport)}</label><label>Statut<select id="e_st">${opts(x.status)}</select></label>
+    <label>Volume (CBM)<input id="e_cb" type="number" step="0.01" min="0" value="${x.cbm??''}"></label><label>Poids (kg)<input id="e_wt" type="number" step="0.01" min="0" value="${x.weight??''}"></label>
+    <label>Prix (FCFA)<input id="e_pr" type="number" min="0" value="${x.price??''}"></label><label>Arrivée estimée<input id="e_et" type="date" value="${x.eta||''}"></label></div>
+    <p style="display:flex;gap:12px;margin:14px 0 0"><button data-act="save" data-id="${x.id}">Enregistrer</button><button class="ghost" data-act="cancel">Annuler</button></p></article>`
+    :`<article class="card"><div class="top"><span class="ref">${esc(x.ref)}</span><span class="desc">${esc(x.customers.name)} · ${esc(x.customers.code)}</span></div>
+    <p class="desc">${esc(x.description)}</p>${route(KEYS.indexOf(x.status))}
+    <dl class="facts"><div><dt>Transport</dt><dd>${x.transport==='air'?'Avion':'Voie maritime'}</dd></div><div><dt>Arrivée estimée</dt><dd>${fmtD(x.eta)}</dd></div>
+    <div><dt>Volume</dt><dd>${x.cbm??'-'} CBM</dd></div><div><dt>Poids</dt><dd>${x.weight==null?'-':x.weight+' kg'}</dd></div><div><dt>Prix</dt><dd>${fmtP(x.price)}</dd></div></dl>
+    <div class="two" style="margin-top:12px"><label>Changer le statut<select data-id="${x.id}" data-f="status">${opts(x.status)}</select></label></div>
+    ${waUrl(x.customers,x.ref)?`<p class="desc" style="margin:12px 0 0"><a href="${waUrl(x.customers,x.ref)}" target="_blank" rel="noopener">Envoyer le suivi par WhatsApp</a></p>`:''}
+    <p style="display:flex;gap:18px;margin:10px 0 0"><button class="ghost" data-act="edit" data-id="${x.id}">Modifier</button><button class="ghost" data-act="del" data-id="${x.id}">Supprimer</button></p></article>`;
+    function draw(){const q=$('q').value.trim().toLowerCase(),f=$('fs').value;
+     const l=O.filter(x=>(!f||x.status===f)&&(!q||[x.ref,x.description,x.customers.name,x.customers.code].join(' ').toLowerCase().includes(q)));
+     $('list').innerHTML=l.length?l.map(card).join(''):`<p class="lead">${O.length?'Aucune commande ne correspond.':'Aucune commande pour le moment.'}</p>`}
     async function load(){
      const[c,o]=await Promise.all([sb.from('customers').select('id,code,name,phone').order('name'),sb.from('orders').select('*,customers(name,code,phone)').order('created_at',{ascending:false})]);
      if(c.error||o.error){say('Chargement impossible. Vérifiez la connexion.');return}
      C=c.data;$('cu').innerHTML='<option value="">Choisir…</option>'+C.map(x=>`<option value="${x.id}">${esc(x.name)} (${esc(x.code)})</option>`).join('')+'<option value="new">+ Nouveau client</option>';
-     $('list').innerHTML=o.data.length?o.data.map(x=>`<article class="card"><div class="top"><span class="ref">${esc(x.ref)}</span><span class="desc">${esc(x.customers.name)} · ${esc(x.customers.code)}</span></div>
-     <p class="desc">${esc(x.description)}</p>${waUrl(x.customers,x.ref)?`<p class="desc"><a href="${waUrl(x.customers,x.ref)}" target="_blank" rel="noopener">Envoyer le suivi par WhatsApp</a></p>`:''}<div class="two"><label>Statut<select data-id="${x.id}" data-f="status">${opts(x.status)}</select></label>
-     <label>Arrivée estimée<input type="date" data-id="${x.id}" data-f="eta" value="${x.eta||''}"></label></div></article>`).join(''):'<p class="lead">Aucune commande pour le moment.</p>';
+     O=o.data;draw();
     }
     function start(){$('login').classList.add('hide');$('app').classList.remove('hide');$('stt').innerHTML=opts('commande');load()}
     sb.auth.getSession().then(({data})=>data.session&&start());
@@ -42,7 +59,7 @@
     $('cu').onchange=()=>['nn','np'].forEach(i=>$(i).classList.toggle('hide',$('cu').value!=='new'));
     document.addEventListener('change',async e=>{const d=e.target.dataset;if(!d.f)return;
      const{error}=await sb.from('orders').update({[d.f]:e.target.value||null}).eq('id',d.id);
-     error?say('Modification non enregistrée. Réessayez.'):say('Modification enregistrée.',1)});
+     if(error){say('Modification non enregistrée. Réessayez.');return}const o=O.find(x=>x.id===d.id);if(o)o[d.f]=e.target.value||null;say('Modification enregistrée.',1);draw()});
     $('nf').onsubmit=async e=>{e.preventDefault();$('wa').classList.add('hide');let cid=$('cu').value,note='',cust;
      if(!cid){say('Choisissez un client.');return}
      if(cid==='new'){const name=$('nm').value.trim();if(!name){say('Entrez le nom du nouveau client.');return}
@@ -57,4 +74,16 @@
      $('nf').reset();['nn','np'].forEach(i=>$(i).classList.add('hide'));say('Commande enregistrée.'+note,1);
      const u=waUrl(cust,ref);if(u){$('wa').href=u;$('wa').classList.remove('hide')}
      load()};
+    $('q').oninput=draw;$('fs').onchange=draw;
+    document.addEventListener('click',async e=>{const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act,id=b.dataset.id;
+     if(a==='edit'){editing=id;draw()}
+     else if(a==='cancel'){editing=null;draw()}
+     else if(a==='del'){if(!confirm('Supprimer cette commande ?'))return;
+      const{error}=await sb.from('orders').delete().eq('id',id);
+      if(error){say('Suppression impossible. Réessayez.');return}say('Commande supprimée.',1);load()}
+     else if(a==='save'){const v={description:$('e_ds').value.trim(),transport:$('e_tr').value,status:$('e_st').value,cbm:$('e_cb').value||null,weight:$('e_wt').value||null,price:$('e_pr').value||null,eta:$('e_et').value||null};
+      if(!v.description){say('La description est obligatoire.');return}
+      const{error}=await sb.from('orders').update(v).eq('id',id);
+      if(error){say('Modification non enregistrée. Réessayez.');return}
+      Object.assign(O.find(x=>x.id===id),v);editing=null;say('Commande modifiée.',1);draw()}});
     </script></body></html>
